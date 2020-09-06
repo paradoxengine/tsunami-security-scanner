@@ -267,11 +267,14 @@ public final class DefaultScanningWorkflow {
                         pluginExecutorProvider.get().executeAsync(vulnDetectorExecutorConfig))
                 .collect(toImmutableList());
     return FluentFuture.from(Futures.successfulAsList(detectionResultFutures))
-        .transform(this::generateScanResults, directExecutor());
+        .transform(
+            detectionResult -> generateScanResults(detectionResult, reconnaissanceReport),
+            directExecutor());
   }
 
   private ScanResults generateScanResults(
-      Collection<PluginExecutionResult<DetectionReportList>> detectionResults) {
+      Collection<PluginExecutionResult<DetectionReportList>> detectionResults,
+      ReconnaissanceReport reconnaissanceReport) {
     executionTracer.setDone();
     logger.atInfo().log("Tsunami scanning workflow done. Generating scan results.");
 
@@ -305,28 +308,29 @@ public final class DefaultScanningWorkflow {
         .setStatusMessage(statusMessage)
         .addAllScanFindings(
             succeededDetectionReports.stream()
-                    .filter(
-                        detectionReport ->
-                            detectionReport
-                                    .getDetectionStatus()
-                                    .equals(DetectionStatus.VULNERABILITY_VERIFIED)
-                                || detectionReport
-                                    .getDetectionStatus()
-                                    .equals(DetectionStatus.VULNERABILITY_PRESENT))
-                    .map(
-                        detectionReport ->
-                            ScanFinding.newBuilder()
-                                .setTargetInfo(detectionReport.getTargetInfo())
-                                .setNetworkService(detectionReport.getNetworkService())
-                                .setVulnerability(detectionReport.getVulnerability())
-                                .build())
-                ::iterator)
+                .filter(
+                    detectionReport ->
+                        detectionReport
+                                .getDetectionStatus()
+                                .equals(DetectionStatus.VULNERABILITY_VERIFIED)
+                            || detectionReport
+                                .getDetectionStatus()
+                                .equals(DetectionStatus.VULNERABILITY_PRESENT))
+                .map(
+                    detectionReport ->
+                        ScanFinding.newBuilder()
+                            .setTargetInfo(detectionReport.getTargetInfo())
+                            .setNetworkService(detectionReport.getNetworkService())
+                            .setVulnerability(detectionReport.getVulnerability())
+                            .build())
+                .collect(toImmutableList()))
         .setScanStartTimestamp(Timestamps.fromMillis(scanStartTimestamp.toEpochMilli()))
         .setScanDuration(
             Durations.fromMillis(
                 Duration.between(scanStartTimestamp, Instant.now(clock)).toMillis()))
         .setFullDetectionReports(
             FullDetectionReports.newBuilder().addAllDetectionReports(succeededDetectionReports))
+        .setReconnaissanceReport(reconnaissanceReport)
         .build();
   }
 
